@@ -431,8 +431,11 @@ for (const comment of comments) {
 </section>
 
 {/* Kanban Board */}
-<section className="mt-8">
-  <h2 className="text-xl font-semibold">
+<section aria-labelledby="kanban-heading"
+        className="mt-8">
+  <h2 
+    id="kanban-heading" 
+    className="text-xl font-semibold">
     Task Board
   </h2>
 
