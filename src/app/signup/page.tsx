@@ -51,7 +51,7 @@ export default function SignupPage() {
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-md rounded-lg border p-8 shadow-sm">
         <h1 className="mb-2 text-2xl font-bold">
-          Create your TaskFlow account
+          Create your free TaskFlow account
         </h1>
 
         <p className="mb-6 text-sm text-gray-500">
