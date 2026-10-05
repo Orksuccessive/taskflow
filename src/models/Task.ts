@@ -7,6 +7,8 @@ export interface ITask extends Document {
   priority: "low" | "medium" | "high";
   dueDate?: Date;
   userId: mongoose.Types.ObjectId;
+  assignee?: mongoose.Types.ObjectId;
+  tags: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,12 +32,14 @@ const taskSchema = new Schema<ITask>(
       type: String,
       enum: ["todo", "in-progress", "done"],
       default: "todo",
+      index: true,
     },
 
     priority: {
       type: String,
       enum: ["low", "medium", "high"],
       default: "medium",
+      index: true,
     },
 
     dueDate: {
@@ -46,6 +50,19 @@ const taskSchema = new Schema<ITask>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
+    },
+
+    assignee: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+
+    tags: {
+      type: [String],
+      default: [],
       index: true,
     },
   },
