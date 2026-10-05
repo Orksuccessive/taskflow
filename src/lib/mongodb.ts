@@ -1,19 +1,21 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI: string = process.env.MONGODB_URI ?? "";
 
 if (!MONGODB_URI) {
   throw new Error("Please define MONGODB_URI in .env.local");
 }
 
-const globalForMongoose = globalThis as unknown as {
-  mongoose: {
-    conn: typeof mongoose | null;
-    promise: Promise<typeof mongoose> | null;
-  };
+type MongooseCache = {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
 };
 
-const cached = globalForMongoose.mongoose || {
+const globalForMongoose = globalThis as typeof globalThis & {
+  mongooseCache?: MongooseCache;
+};
+
+const cached: MongooseCache = globalForMongoose.mongooseCache ?? {
   conn: null,
   promise: null,
 };
@@ -32,4 +34,4 @@ export async function connectDB() {
   return cached.conn;
 }
 
-globalForMongoose.mongoose = cached;
+globalForMongoose.mongooseCache = cached;
