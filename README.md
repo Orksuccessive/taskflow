@@ -1,115 +1,68 @@
 # TaskFlow
 
-TaskFlow is a collaborative task management application built with Next.js, MongoDB, and Auth.js.
-
-It provides a lightweight Kanban-style workflow where authenticated users can create, update, delete, assign, filter, sort, and comment on tasks.
-
-## Live Demo
-
-Live URL:
-
-https://YOUR-VERCEL-DOMAIN.vercel.app
-
-## Screenshots
-
-### Login
-
-![Login Screenshot](./screenshots/login.png)
-
-### Dashboard
-
-![Dashboard Screenshot](./screenshots/dashboard.png)
-
-### Task Board
-
-![Task Board Screenshot](./screenshots/tasks.png)
-
-> Add the screenshots to `screenshots/` before publishing this README.
+TaskFlow is a task management app built with Next.js, MongoDB, and Auth.js. It supports a simple but useful workflow for creating, organizing, filtering, and tracking tasks from a dashboard and Kanban-style board.
 
 ## Features
 
-- User registration and login
-- JWT-based authentication with Auth.js
+- Email/password sign-up and sign-in
 - Protected dashboard and task routes
-- Create, update, and delete tasks
-- Task status management
-- Task priorities
-- Due dates
-- Task assignment
-- Tags
-- Search and filtering
-- Sorting
-- Task comments
-- Dashboard statistics
-- Aggregation-based task analytics
-- Loading states
-- Error boundaries
-- Responsive UI
-- Accessibility improvements
-- Production deployment with Vercel
+- Create, edit, delete, and filter tasks
+- Kanban-style status management
+- Due dates, priorities, assignees, and tags
+- Commenting on tasks
+- Dashboard summary cards and top-assignee insights
+- Responsive layout for desktop and mobile
+- Accessibility-focused updates for keyboard and screen-reader usability
 
 ## Tech Stack
 
-### Frontend
-
-- Next.js
-- React
+- Next.js 16
+- React 19
 - TypeScript
 - Tailwind CSS
+- MongoDB + Mongoose
+- Auth.js / NextAuth
+- bcryptjs
 
-### Backend
+## Getting started
 
-- Next.js Server Components
-- Next.js Server Actions
-- Next.js Route Handlers
-- Auth.js
-- Mongoose
+1. Install dependencies:
 
-### Database
+```bash
+npm install
+```
 
-- MongoDB Atlas
+2. Create a `.env.local` file with a MongoDB connection string and the required Auth.js secret:
 
-### Authentication
+```bash
+MONGODB_URI="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/taskflow"
+AUTH_SECRET="replace-with-a-long-random-secret"
+```
 
-- Auth.js Credentials Provider
-- JWT sessions
-- bcrypt password hashing
+3. Run the app in development mode:
 
-### Testing
+```bash
+npm run dev
+```
 
-- Vitest
-- React Testing Library
-- Supertest
+4. Open http://localhost:3000
 
-### Deployment
-
-- Vercel
-
-## Architecture
-
-The application follows a Next.js full-stack architecture.
+## Project structure
 
 ```text
-Browser
-   |
-   v
-Next.js App Router
-   |
-   +--------------------+
-   |                    |
-   v                    v
-Server Components    Server Actions
-   |                    |
-   +---------+----------+
-             |
-             v
-        Auth.js
-             |
-             v
-      Authentication
-             |
-             v
-         Mongoose
-             |
-             v
-       MongoDB Atlas
+src/
+  app/
+    dashboard/
+    login/
+    signup/
+    tasks/
+    api/
+  auth.ts
+  components/
+  lib/
+  models/
+```
+
+## Notes
+
+This project is built as a practical full-stack Next.js starter for personal task tracking and team-style planning workflows. It is intended to be extended with additional features such as drag-and-drop task movement, analytics, and richer collaboration tools.
