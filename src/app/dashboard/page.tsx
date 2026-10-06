@@ -14,33 +14,49 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6 md:p-8">
+    <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)] md:p-8">
       <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 rounded-2xl bg-[var(--panel)] p-6 shadow-sm ring-1 ring-[var(--border)] sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">
-              Dashboard
-            </h1>
-
-            <p className="mt-1 text-gray-600">
-              Welcome back, {session.user.name}
-            </p>
+            <p className="text-sm font-medium uppercase tracking-[0.14em] text-blue-600">Overview</p>
+            <h1 className="mt-2 text-3xl font-bold text-[var(--foreground)]">Dashboard</h1>
+            <p className="mt-1 text-[var(--text-soft)]">Welcome back, {session.user.name}</p>
           </div>
 
-          <LogoutButton />
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/workspace"
+              className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)]"
+            >
+              Workspace
+            </Link>
+            <Link
+              href="/profile"
+              className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)]"
+            >
+              Profile
+            </Link>
+            <LogoutButton />
+          </div>
         </header>
 
         <Suspense fallback={<DashboardStatsLoading />}>
           <DashboardStats />
         </Suspense>
 
-        <div className="mt-8">
-         <Link
-  href="/tasks"
-  className="inline-flex rounded-md bg-black px-5 py-3 font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
->
-  Open Tasks
-</Link>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link
+            href="/tasks"
+            className="inline-flex rounded-md bg-[var(--button-solid)] px-5 py-3 font-medium text-[var(--background)] hover:bg-[var(--button-solid-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--border)] focus:ring-offset-2"
+          >
+            Open Tasks
+          </Link>
+          <Link
+            href="/workspace"
+            className="inline-flex rounded-md border border-[var(--border)] bg-[var(--panel)] px-5 py-3 font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)]"
+          >
+            Manage team
+          </Link>
         </div>
       </div>
     </main>
@@ -58,12 +74,12 @@ function DashboardStatsLoading() {
         {[1, 2, 3, 4].map((item) => (
           <div
             key={item}
-            className="h-32 animate-pulse rounded-lg bg-white shadow"
+            className="h-32 animate-pulse rounded-lg bg-[var(--panel)] shadow"
           />
         ))}
       </div>
 
-      <div className="mt-8 h-64 animate-pulse rounded-lg bg-white shadow" />
+      <div className="mt-8 h-64 animate-pulse rounded-lg bg-[var(--panel)] shadow" />
     </div>
   );
 }

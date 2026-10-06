@@ -1,16 +1,93 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { connectDB } from "@/lib/mongodb";
 import Task from "@/models/Task";
 import mongoose from "mongoose";
-import {
-  createTask,
-  updateTask,
-  deleteTask,
-  updateTaskStatus,
-  createComment,
-} from "./actions";
+import { createTask } from "./actions";
 import Comment from "@/models/Comment";
+import Workspace from "@/models/Workspace";
+import TaskBoard from "@/components/TaskBoard";
+
+function createInviteCode() {
+  return Array.from({ length: 8 }, () =>
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[
+      Math.floor(Math.random() * 32)
+    ]
+  ).join("");
+}
+
+function serializeId(value: unknown) {
+  if (!value) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof (value as { toString?: () => string }).toString === "function") {
+    return (value as { toString: () => string }).toString();
+  }
+
+  return value;
+}
+
+type SerializedTask = {
+  _id: string;
+  title: string;
+  description?: string;
+  status: "todo" | "in-progress" | "done";
+  priority: "low" | "medium" | "high";
+  userId?: string | null;
+  workspaceId?: string | null;
+  assignee?: { _id?: string; name?: string; email?: string } | null;
+  dueDate?: string | null;
+  tags?: string[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type SerializedUser = {
+  _id: string;
+  name: string;
+  email: string;
+};
+
+function serializeTask(task: any): SerializedTask {
+  return {
+    ...task,
+    _id: serializeId(task._id),
+    userId: serializeId(task.userId),
+    workspaceId: serializeId(task.workspaceId),
+    assignee: task.assignee
+      ? {
+          ...(typeof task.assignee === "object" ? task.assignee : {}),
+          _id: serializeId(task.assignee?._id),
+          name: task.assignee?.name ?? undefined,
+          email: task.assignee?.email ?? undefined,
+        }
+      : null,
+    dueDate: task.dueDate ? new Date(task.dueDate).toISOString() : null,
+    createdAt: task.createdAt ? new Date(task.createdAt).toISOString() : null,
+    updatedAt: task.updatedAt ? new Date(task.updatedAt).toISOString() : null,
+  } as SerializedTask;
+}
+
+function serializeUser(user: any): SerializedUser {
+  return {
+    ...user,
+    _id: serializeId(user._id),
+  } as SerializedUser;
+}
 
 export default async function TasksPage({
   searchParams,
@@ -41,17 +118,39 @@ export default async function TasksPage({
     redirect("/login");
   }
 
+  if (!user.workspaceId) {
+    const workspace = await Workspace.create({
+      name: user.name ? `${user.name}'s workspace` : "My workspace",
+      inviteCode: createInviteCode(),
+      ownerId: user._id,
+      members: [user._id],
+    });
+
+    user.workspaceId = workspace._id;
+    await user.save();
+  }
+
   const params = await searchParams;
 
   const search = params.search?.trim() || "";
   const status = params.status || "";
-  const assignee = params.assignee || "";
   const tag = params.tag?.trim() || "";
   const sort = params.sort || "newest";
 
-  const query: Record<string, unknown> = {
-    userId: user._id,
-  };
+  const workspace = await Workspace.findById(user.workspaceId).lean();
+  const isOwner = !!workspace && workspace.ownerId?.toString() === user._id.toString();
+  const assigneeParam = params.assignee || (isOwner ? "all" : "mine");
+  const assignee = assigneeParam === "mine" ? user._id.toString() : assigneeParam;
+
+  const query: Record<string, unknown> = { workspaceId: user.workspaceId };
+
+  if (!isOwner) {
+    if (assigneeParam === "mine" || !assigneeParam || assigneeParam === "") {
+      query.assignee = user._id;
+    } else if (assignee && mongoose.isValidObjectId(assignee)) {
+      query.assignee = assignee;
+    }
+  }
 
   if (search) {
     query.title = {
@@ -67,7 +166,7 @@ export default async function TasksPage({
     query.status = status;
   }
 
-  if (assignee && mongoose.isValidObjectId(assignee)) {
+  if (isOwner && assignee && mongoose.isValidObjectId(assignee)) {
     query.assignee = assignee;
   }
 
@@ -97,17 +196,18 @@ export default async function TasksPage({
   }
 
   const tasks = await Task.find(query)
+    .populate("assignee", "_id name email")
     .sort(sortOption)
     .lean();
 
   const comments = await Comment.find({
-  taskId: {
-    $in: tasks.map((task) => task._id),
-  },
-})
-  .populate("authorId", "name email")
-  .sort({ createdAt: -1 })
-  .lean();  
+    taskId: {
+      $in: tasks.map((task) => task._id),
+    },
+  })
+    .populate("authorId", "name email")
+    .sort({ createdAt: -1 })
+    .lean();
 
   const commentsByTask = new Map<
   string,
@@ -124,649 +224,276 @@ for (const comment of comments) {
   commentsByTask.set(taskId, existing);
 }
 
-  // Get users that can be assigned to tasks
-  const users = await User.find({})
-      .select("_id name email")
-      .sort({ name: 1 })
-      .lean() as unknown as Array<{
+  const workspaceMembers = user.workspaceId
+    ? await Workspace.findById(user.workspaceId).select("members").lean()
+    : null;
+
+  const memberIds = workspaceMembers?.members && Array.isArray(workspaceMembers.members)
+    ? workspaceMembers.members.map((memberId) => new mongoose.Types.ObjectId(String(memberId)))
+    : [user._id];
+
+  const users = await User.find({
+    _id: { $in: memberIds },
+  })
+    .select("_id name email")
+    .sort({ name: 1 })
+    .lean() as unknown as Array<{
     _id: mongoose.Types.ObjectId;
     name: string;
     email: string;
   }>;
 
-  return (
-    <main className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-3xl font-bold">My Tasks</h1>
+  const serializedTasks: SerializedTask[] = tasks.map((task) => serializeTask(task));
+  const serializedUsers: SerializedUser[] = users.map((user) => serializeUser(user));
+  const serializedCommentsByTask = Object.fromEntries(
+    Array.from(commentsByTask.entries()).map(([taskId, taskComments]) => [
+      taskId,
+      taskComments.map((comment) => ({
+        _id: comment._id.toString(),
+        content: comment.content,
+        createdAt: comment.createdAt ? new Date(comment.createdAt).toISOString() : new Date().toISOString(),
+        authorId: comment.authorId
+          ? {
+              name: typeof comment.authorId === "object" && "name" in comment.authorId ? String(comment.authorId.name ?? "") : undefined,
+              email: typeof comment.authorId === "object" && "email" in comment.authorId ? String(comment.authorId.email ?? "") : undefined,
+            }
+          : null,
+      })),
+    ])
+  );
 
-        <p className="mt-2 text-gray-600">
+  return (
+    <main className="min-h-screen bg-[var(--background)] p-8 text-[var(--foreground)]">
+      <div className="mx-auto max-w-5xl">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold">My Tasks</h1>
+          <Link
+            href="/dashboard"
+            className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)]"
+          >
+            Dashboard
+          </Link>
+        </div>
+
+        <p className="mt-2 text-[var(--text-soft)]">
           Create and manage your TaskFlow tasks.
         </p>
 
-        {/* Create Task */}
-        <section className="mt-8 rounded-lg bg-white p-6 shadow">
-          <h2 className="text-xl font-semibold">
-            Create Task
-          </h2>
+        {isOwner && (
+          <section className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+            <h2 className="text-xl font-semibold text-[var(--foreground)]">Create Task</h2>
 
-          <form action={createTask} className="mt-4 space-y-4">
-            <div>
-              <label
-                htmlFor="title"
-                className="block text-sm font-medium"
+            <form action={createTask} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="title" className="block text-sm font-medium text-[var(--foreground)]">
+                  Title
+                </label>
+                <input
+                  id="title"
+                  name="title"
+                  type="text"
+                  required
+                  maxLength={200}
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
+                  placeholder="Enter task title"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="description" className="block text-sm font-medium text-[var(--foreground)]">
+                  Description
+                </label>
+                <textarea
+                  id="description"
+                  name="description"
+                  rows={4}
+                  maxLength={1000}
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
+                  placeholder="Enter task description"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="priority" className="block text-sm font-medium text-[var(--foreground)]">
+                  Priority
+                </label>
+                <select
+                  id="priority"
+                  name="priority"
+                  defaultValue="medium"
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="dueDate" className="block text-sm font-medium text-[var(--foreground)]">
+                  Due Date
+                </label>
+                <input
+                  id="dueDate"
+                  name="dueDate"
+                  type="date"
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="assignee" className="block text-sm font-medium text-[var(--foreground)]">
+                  Assignee
+                </label>
+                <select
+                  id="assignee"
+                  name="assignee"
+                  defaultValue=""
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
+                >
+                  <option value="">Unassigned</option>
+                  {users.map((member) => (
+                    <option key={member._id.toString()} value={member._id.toString()}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="tags" className="block text-sm font-medium text-[var(--foreground)]">
+                  Tags
+                </label>
+                <input
+                  id="tags"
+                  name="tags"
+                  type="text"
+                  placeholder="frontend, api, urgent"
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
+                />
+                <p className="mt-1 text-xs text-[var(--text-muted)]">Separate multiple tags with commas.</p>
+              </div>
+
+              <button
+                type="submit"
+                className="rounded-md bg-[var(--button-solid)] px-5 py-2 text-[var(--button-muted)] hover:bg-[var(--button-solid-hover)]"
               >
-                Title
-              </label>
+                Create Task
+              </button>
+            </form>
+          </section>
+        )}
 
+        <section className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+          <h2 className="text-xl font-semibold text-[var(--foreground)]">Search & Filters</h2>
+
+          <form method="GET" action="/tasks" className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div>
+              <label htmlFor="search" className="block text-sm font-medium text-[var(--foreground)]">
+                Search title
+              </label>
               <input
-                id="title"
-                name="title"
+                id="search"
+                name="search"
                 type="text"
-                required
-                maxLength={200}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-                placeholder="Enter task title"
+                defaultValue={search}
+                placeholder="Search tasks..."
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
               />
             </div>
 
             <div>
-              <label
-                htmlFor="description"
-                className="block text-sm font-medium"
-              >
-                Description
+              <label htmlFor="status" className="block text-sm font-medium text-[var(--foreground)]">
+                Status
               </label>
-
-              <textarea
-                id="description"
-                name="description"
-                rows={4}
-                maxLength={1000}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-                placeholder="Enter task description"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="priority"
-                className="block text-sm font-medium"
-              >
-                Priority
-              </label>
-
               <select
-                id="priority"
-                name="priority"
-                defaultValue="medium"
-                className="mt-1 rounded-md border px-3 py-2"
+                id="status"
+                name="status"
+                defaultValue={status}
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
               >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
+                <option value="">All statuses</option>
+                <option value="todo">Todo</option>
+                <option value="in-progress">In Progress</option>
+                <option value="done">Done</option>
               </select>
             </div>
 
             <div>
-              <label
-                htmlFor="dueDate"
-                className="block text-sm font-medium"
-              >
-                Due Date
+              <label htmlFor="assignee" className="block text-sm font-medium text-[var(--foreground)]">
+                Assignee
               </label>
+              <select
+                id="assignee"
+                name="assignee"
+                defaultValue={isOwner ? (assignee && assignee !== "all" ? assignee : "all") : assigneeParam === "mine" ? "mine" : assignee || "all"}
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
+              >
+                {!isOwner && <option value="mine">My tasks</option>}
+                <option value="all">All assignees</option>
+                {users.map((member) => (
+                  <option key={member._id.toString()} value={member._id.toString()}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
+            <div>
+              <label htmlFor="tag" className="block text-sm font-medium text-[var(--foreground)]">
+                Tag
+              </label>
               <input
-                id="dueDate"
-                name="dueDate"
-                type="date"
-                className="mt-1 rounded-md border px-3 py-2"
+                id="tag"
+                name="tag"
+                type="text"
+                defaultValue={tag}
+                placeholder="e.g. frontend"
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
               />
             </div>
 
             <div>
-  <label
-    htmlFor="assignee"
-    className="block text-sm font-medium"
-  >
-    Assignee
-  </label>
+              <label htmlFor="sort" className="block text-sm font-medium text-[var(--foreground)]">
+                Sort
+              </label>
+              <select
+                id="sort"
+                name="sort"
+                defaultValue={sort}
+                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
+              >
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="title-asc">Title A-Z</option>
+                <option value="title-desc">Title Z-A</option>
+              </select>
+            </div>
 
-  <select
-    id="assignee"
-    name="assignee"
-    defaultValue=""
-    className="mt-1 w-full rounded-md border px-3 py-2"
-  >
-    <option value="">Unassigned</option>
-
-    {users.map((user) => (
-      <option
-        key={user._id.toString()}
-        value={user._id.toString()}
-      >
-        {user.name}
-      </option>
-    ))}
-  </select>
-</div>
-
-<div>
-  <label
-    htmlFor="tags"
-    className="block text-sm font-medium"
-  >
-    Tags
-  </label>
-
-  <input
-    id="tags"
-    name="tags"
-    type="text"
-    placeholder="frontend, api, urgent"
-    className="mt-1 w-full rounded-md border px-3 py-2"
-  />
-
-  <p className="mt-1 text-xs text-gray-500">
-    Separate multiple tags with commas.
-  </p>
-</div>
-
-
-            <button
-              type="submit"
-              className="rounded-md bg-black px-5 py-2 text-white hover:bg-gray-800"
-            >
-              Create Task
-            </button>
+            <div className="flex items-end gap-2 md:col-span-2 lg:col-span-5">
+              <button type="submit" className="rounded-md bg-[var(--button-solid)] px-5 py-2 text-[var(--button-muted)] hover:bg-[var(--button-solid-hover)]">
+                Apply Filters
+              </button>
+              <a href="/tasks" className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-5 py-2 text-[var(--foreground)] hover:bg-[var(--panel-muted)]">
+                Clear
+              </a>
+            </div>
           </form>
         </section>
 
-        <section className="mt-8 rounded-lg bg-white p-6 shadow">
-  <h2 className="text-xl font-semibold">
-    Search & Filters
-  </h2>
+        <section aria-labelledby="kanban-heading" className="mt-8">
+          <h2 id="kanban-heading" className="text-xl font-semibold text-[var(--foreground)]">
+            Task Board
+          </h2>
 
-  <form
-    method="GET"
-    action="/tasks"
-    className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5"
-  >
-    {/* Search */}
-    <div>
-      <label
-        htmlFor="search"
-        className="block text-sm font-medium"
-      >
-        Search title
-      </label>
-
-      <input
-        id="search"
-        name="search"
-        type="text"
-        defaultValue={search}
-        placeholder="Search tasks..."
-        className="mt-1 w-full rounded-md border px-3 py-2"
-      />
-    </div>
-
-    {/* Status */}
-    <div>
-      <label
-        htmlFor="status"
-        className="block text-sm font-medium"
-      >
-        Status
-      </label>
-
-      <select
-        id="status"
-        name="status"
-        defaultValue={status}
-        className="mt-1 w-full rounded-md border px-3 py-2"
-      >
-        <option value="">All statuses</option>
-        <option value="todo">Todo</option>
-        <option value="in-progress">In Progress</option>
-        <option value="done">Done</option>
-      </select>
-    </div>
-
-    {/* Assignee */}
-    <div>
-      <label
-        htmlFor="assignee"
-        className="block text-sm font-medium"
-      >
-        Assignee
-      </label>
-
-      <select
-        id="assignee"
-        name="assignee"
-        defaultValue={assignee}
-        className="mt-1 w-full rounded-md border px-3 py-2"
-      >
-        <option value="">All assignees</option>
-
-        {users.map((user) => (
-          <option
-            key={user._id.toString()}
-            value={user._id.toString()}
-          >
-            {user.name}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    {/* Tag */}
-    <div>
-      <label
-        htmlFor="tag"
-        className="block text-sm font-medium"
-      >
-        Tag
-      </label>
-
-      <input
-        id="tag"
-        name="tag"
-        type="text"
-        defaultValue={tag}
-        placeholder="e.g. frontend"
-        className="mt-1 w-full rounded-md border px-3 py-2"
-      />
-    </div>
-
-    {/* Sort */}
-    <div>
-      <label
-        htmlFor="sort"
-        className="block text-sm font-medium"
-      >
-        Sort
-      </label>
-
-      <select
-        id="sort"
-        name="sort"
-        defaultValue={sort}
-        className="mt-1 w-full rounded-md border px-3 py-2"
-      >
-        <option value="newest">
-          Newest
-        </option>
-
-        <option value="oldest">
-          Oldest
-        </option>
-
-        <option value="title-asc">
-          Title A-Z
-        </option>
-
-        <option value="title-desc">
-          Title Z-A
-        </option>
-      </select>
-    </div>
-
-    <div className="flex items-end gap-2 md:col-span-2 lg:col-span-5">
-      <button
-        type="submit"
-        className="rounded-md bg-black px-5 py-2 text-white hover:bg-gray-800"
-      >
-        Apply Filters
-      </button>
-
-      <a
-        href="/tasks"
-        className="rounded-md border px-5 py-2 hover:bg-gray-50"
-      >
-        Clear
-      </a>
-    </div>
-  </form>
-</section>
-
-{/* Kanban Board */}
-<section aria-labelledby="kanban-heading"
-        className="mt-8">
-  <h2 
-    id="kanban-heading" 
-    className="text-xl font-semibold">
-    Task Board
-  </h2>
-
-  <div className="mt-4 grid gap-6 md:grid-cols-3">
-    {[
-      {
-        status: "todo",
-        title: "Todo",
-      },
-      {
-        status: "in-progress",
-        title: "In Progress",
-      },
-      {
-        status: "done",
-        title: "Done",
-      },
-    ].map((column) => {
-      const columnTasks = tasks.filter(
-        (task) => task.status === column.status
-      );
-
-      return (
-        <div
-          key={column.status}
-          className="rounded-lg bg-gray-100 p-4"
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">
-              {column.title}
-            </h3>
-
-            <span className="text-sm text-gray-500">
-              {columnTasks.length}
-            </span>
-          </div>
-
-          <div className="mt-4 space-y-4">
-            {columnTasks.length === 0 ? (
-              <div className="rounded-md border border-dashed bg-white p-4 text-center text-sm text-gray-500">
-                No tasks
-              </div>
-            ) : (
-              columnTasks.map((task) => (
-               <div
-  key={task._id.toString()}
-  className="rounded-lg bg-white p-4 shadow-sm"
->
-  <h4 className="font-semibold">
-    {task.title}
-  </h4>
-
-  {task.description && (
-    <p className="mt-2 text-sm text-gray-600">
-      {task.description}
-    </p>
-  )}
-
-  <div className="mt-3 flex gap-2 text-xs">
-    <span className="rounded bg-gray-100 px-2 py-1">
-      {task.priority}
-    </span>
-
-    {task.tags?.map((tag) => (
-      <span
-        key={tag}
-        className="rounded bg-blue-100 px-2 py-1"
-      >
-        #{tag}
-      </span>
-    ))}
-  </div>
-
-  {/* Change Status */}
-  <form
-    action={updateTaskStatus}
-    className="mt-4"
-  >
-    <input
-      type="hidden"
-      name="taskId"
-      value={task._id.toString()}
-    />
-
-    <label
-      htmlFor={`status-${task._id}`}
-      className="block text-xs font-medium text-gray-600"
-    >
-      Move task
-    </label>
-
-    <select
-      id={`status-${task._id}`}
-      name="status"
-      defaultValue={task.status}
-      className="mt-1 w-full rounded-md border px-2 py-2 text-sm"
-    >
-      <option value="todo">Todo</option>
-      <option value="in-progress">In Progress</option>
-      <option value="done">Done</option>
-    </select>
-
-    <button
-      type="submit"
-      className="mt-2 w-full rounded-md bg-black px-3 py-2 text-sm text-white hover:bg-gray-800"
-    >
-      Update Status
-    </button>
-  </form>
-
-  {/* Edit Task */}
-  <details className="mt-4">
-    <summary className="cursor-pointer text-sm font-medium">
-      Edit Task
-    </summary>
-
-    <form
-      action={updateTask}
-      className="mt-3 space-y-3"
-    >
-      <input
-        type="hidden"
-        name="taskId"
-        value={task._id.toString()}
-      />
-
-      <input
-        name="title"
-        type="text"
-        required
-        maxLength={200}
-        defaultValue={task.title}
-        className="w-full rounded-md border px-3 py-2 text-sm"
-        placeholder="Title"
-      />
-
-      <textarea
-        name="description"
-        rows={3}
-        maxLength={1000}
-        defaultValue={task.description || ""}
-        className="w-full rounded-md border px-3 py-2 text-sm"
-        placeholder="Description"
-      />
-
-      <select
-        name="status"
-        defaultValue={task.status}
-        className="w-full rounded-md border px-3 py-2 text-sm"
-      >
-        <option value="todo">Todo</option>
-        <option value="in-progress">In Progress</option>
-        <option value="done">Done</option>
-      </select>
-
-      <select
-        name="priority"
-        defaultValue={task.priority}
-        className="w-full rounded-md border px-3 py-2 text-sm"
-      >
-        <option value="low">Low</option>
-        <option value="medium">Medium</option>
-        <option value="high">High</option>
-      </select>
-
-      <input
-        name="dueDate"
-        type="date"
-        defaultValue={
-          task.dueDate
-            ? new Date(task.dueDate)
-                .toISOString()
-                .split("T")[0]
-            : ""
-        }
-        className="w-full rounded-md border px-3 py-2 text-sm"
-      />
-
-
-        <div>
-  <label className="block text-sm font-medium">
-    Assignee
-  </label>
-
-  <select
-    name="assignee"
-    defaultValue={
-      task.assignee
-        ? task.assignee.toString()
-        : ""
-    }
-    className="mt-1 w-full rounded-md border px-3 py-2"
-  >
-    <option value="">Unassigned</option>
-
-    {users.map((user) => (
-      <option
-        key={user._id.toString()}
-        value={user._id.toString()}
-      >
-        {user.name}
-      </option>
-    ))}
-  </select>
-</div>
-
-
-<div>
-  <label className="block text-sm font-medium">
-    Tags
-  </label>
-
-  <input
-    name="tags"
-    type="text"
-    defaultValue={task.tags.join(", ")}
-    placeholder="frontend, api, urgent"
-    className="mt-1 w-full rounded-md border px-3 py-2"
-  />
-
-  <p className="mt-1 text-xs text-gray-500">
-    Separate multiple tags with commas.
-  </p>
-</div>
-
-
-      <button
-        type="submit"
-        className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
-      >
-        Save Changes
-      </button>
-    </form>
-  </details>
-
-  {/* Delete Task */}
-  <form
-    action={deleteTask}
-    className="mt-3"
-  >
-    <input
-      type="hidden"
-      name="taskId"
-      value={task._id.toString()}
-    />
-
-    <button
-      type="submit"
-      className="w-full rounded-md bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700"
-    >
-      Delete Task
-    </button>
-  </form>
-  
-  <div className="mt-4 border-t pt-4">
-  <h4 className="text-sm font-semibold">
-    Comments
-  </h4>
-
-  <div className="mt-3 space-y-3">
-    {(commentsByTask.get(task._id.toString()) || []).map(
-      (comment) => {
-        const author = comment.authorId as {
-          name?: string;
-          email?: string;
-        };
-
-        return (
-          <div
-            key={comment._id.toString()}
-            className="rounded-md bg-gray-50 p-3"
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">
-                {author?.name || author?.email || "Unknown user"}
-              </p>
-
-              <time className="text-xs text-gray-500">
-                {new Date(comment.createdAt).toLocaleString()}
-              </time>
-            </div>
-
-            <p className="mt-1 text-sm text-gray-700">
-              {comment.content}
-            </p>
-          </div>
-        );
-      }
-    )}
-  </div>
-
-  <form
-    action={createComment}
-    className="mt-4 space-y-2"
-  >
-    <input
-      type="hidden"
-      name="taskId"
-      value={task._id.toString()}
-    />
-
-    <textarea
-      name="content"
-      required
-      maxLength={1000}
-      placeholder="Write a comment..."
-      className="w-full rounded-md border px-3 py-2 text-sm"
-      rows={2}
-    />
-
-    <button
-      type="submit"
-      className="rounded-md bg-black px-3 py-2 text-sm text-white hover:bg-gray-800"
-    >
-      Add Comment
-    </button>
-  </form>
-</div>
-
-</div>    
-
-
-
-          ))
-            )}
-          </div>
-        </div>
-      );
-    })}
-  </div>
-</section>
+          <TaskBoard
+            initialTasks={serializedTasks as any}
+            users={serializedUsers as any}
+            isOwner={isOwner}
+            currentUserId={user._id.toString()}
+            commentsByTask={serializedCommentsByTask as any}
+          />
+        </section>
       </div>
     </main>
   );
