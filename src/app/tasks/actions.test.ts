@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { canTransitionStatus } from "@/lib/taskStatus";
 
 const mockAuth = vi.fn();
 const mockConnectDB = vi.fn();
@@ -62,6 +63,18 @@ const { getDashboardStats } = await import("@/lib/dashboard");
 describe("updateTaskStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuth.mockReset();
+    mockConnectDB.mockReset();
+    mockUserFindOne.mockReset();
+    mockTaskFindOne.mockReset();
+    mockTaskUpdateOne.mockReset();
+    mockTaskCreate.mockReset();
+    mockTaskAggregate.mockReset();
+    mockTaskCountDocuments.mockReset();
+    mockWorkspaceCreate.mockReset();
+    mockWorkspaceFindById.mockReset();
+    mockCommentCreate.mockReset();
+    mockRevalidatePath.mockReset();
   });
 
   it("creates a default workspace for users without one before updating status", async () => {
@@ -304,5 +317,48 @@ describe("updateTaskStatus", () => {
         workspaceId,
       })
     );
+  });
+
+  it("blocks direct todo to done transitions", () => {
+    expect(canTransitionStatus("todo", "done")).toBe(false);
+    expect(canTransitionStatus("done", "todo")).toBe(false);
+  });
+
+  it("allows adjacent status transitions in the workflow", async () => {
+    const workspaceId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439012");
+    const memberId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439013");
+    const taskId = "507f1f77bcf86cd799439011";
+
+    const user = {
+      _id: memberId,
+      email: "member@example.com",
+      name: "Member User",
+      workspaceId,
+      workspaceIds: [workspaceId],
+      save: vi.fn().mockResolvedValue(true),
+    };
+
+    mockAuth.mockResolvedValue({ user: { email: "member@example.com" } });
+    mockConnectDB.mockResolvedValue(undefined);
+    mockUserFindOne.mockResolvedValue(user);
+    mockWorkspaceFindById.mockResolvedValue({
+      _id: workspaceId,
+      ownerId: new mongoose.Types.ObjectId("507f1f77bcf86cd799439014"),
+      members: [memberId],
+    });
+    mockTaskFindOne.mockResolvedValue({
+      _id: taskId,
+      workspaceId,
+      assignee: memberId,
+      status: "todo",
+    });
+    mockTaskUpdateOne.mockResolvedValue({});
+
+    const formData = new FormData();
+    formData.set("taskId", taskId);
+    formData.set("status", "in-progress");
+
+    await expect(updateTaskStatus(formData)).resolves.toBeUndefined();
+    expect(mockTaskUpdateOne).toHaveBeenCalled();
   });
 });

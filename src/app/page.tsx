@@ -10,23 +10,23 @@ export default async function Home() {
   }
 
   return (
-    <main id="main-content" className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-12">
-      <div className="w-full max-w-5xl rounded-2xl bg-white p-8 shadow-xl ring-1 ring-slate-200 md:p-12">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-12 text-[var(--foreground)]">
+      <div className="w-full max-w-5xl rounded-2xl bg-[var(--panel)] p-8 shadow-xl ring-1 ring-[var(--border)] md:p-12">
         <nav aria-label="Main navigation" className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-lg font-bold tracking-tight text-slate-900">TaskFlow</p>
+            <p className="text-lg font-bold tracking-tight text-[var(--foreground)]">TaskFlow</p>
           </div>
 
           <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none"
+              className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)] focus-visible:outline-none"
             >
               Log in
             </Link>
             <Link
               href="/signup"
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 focus-visible:outline-none"
+              className="rounded-md bg-[var(--button-solid)] px-4 py-2 text-sm font-medium text-[var(--background)] hover:bg-[var(--button-solid-hover)] focus-visible:outline-none"
             >
               Create account
             </Link>
@@ -39,34 +39,34 @@ export default async function Home() {
               Project planning made simple
             </p>
 
-            <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-900 md:text-5xl">
+            <h1 className="mt-4 text-4xl font-black tracking-tight text-[var(--foreground)] md:text-5xl">
               Turn work into momentum.
             </h1>
 
-            <p className="mt-5 max-w-xl text-lg text-slate-600">
+            <p className="mt-5 max-w-xl text-lg text-[var(--text-soft)]">
               TaskFlow helps you capture priorities, track progress across stages, and keep the whole team aligned without losing context.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/signup"
-                className="inline-flex items-center justify-center rounded-md bg-slate-900 px-6 py-3 text-base font-medium text-white hover:bg-slate-700 focus-visible:outline-none"
+                className="inline-flex items-center justify-center rounded-md bg-[var(--button-solid)] px-6 py-3 text-base font-medium text-[var(--background)] hover:bg-[var(--button-solid-hover)] focus-visible:outline-none"
               >
                 Start free
               </Link>
               <Link
                 href="/login"
-                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-6 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none"
+                className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--panel)] px-6 py-3 text-base font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)] focus-visible:outline-none"
               >
                 Already have an account?
               </Link>
             </div>
           </div>
 
-          <div className="rounded-xl bg-slate-900 p-6 text-slate-100 shadow-lg">
+          <div className="rounded-xl bg-[var(--panel-strong)] p-6 text-[var(--foreground)] shadow-lg ring-1 ring-[var(--border)]">
             <h2 className="text-xl font-semibold">Why teams use TaskFlow</h2>
 
-            <ul className="mt-5 space-y-4 text-sm text-slate-200">
+            <ul className="mt-5 space-y-4 text-sm text-[var(--text-soft)]">
               <li className="flex gap-3"><span aria-hidden="true">✓</span><span>Organize tasks by status, priority, due date, and assignee.</span></li>
               <li className="flex gap-3"><span aria-hidden="true">✓</span><span>Track work with transparent task history and comments.</span></li>
               <li className="flex gap-3"><span aria-hidden="true">✓</span><span>Focus on execution with a clean dashboard and filterable board.</span></li>
