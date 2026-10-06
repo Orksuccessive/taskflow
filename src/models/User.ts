@@ -4,6 +4,9 @@ export interface IUser extends Document {
   name: string;
   email: string;
   passwordHash: string;
+  avatarUrl?: string;
+  workspaceId?: mongoose.Types.ObjectId | null;
+  workspaceIds?: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +31,26 @@ const userSchema = new Schema<IUser>(
     passwordHash: {
       type: String,
       required: true,
+    },
+
+    avatarUrl: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    workspaceId: {
+      type: Schema.Types.ObjectId,
+      ref: "Workspace",
+      default: null,
+      index: true,
+    },
+
+    workspaceIds: {
+      type: [Schema.Types.ObjectId],
+      ref: "Workspace",
+      default: [],
+      index: true,
     },
   },
   {

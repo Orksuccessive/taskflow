@@ -3,6 +3,37 @@
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
+  --panel: #ffffff;
+  --panel-muted: #f1f5f9;
+  --panel-strong: #e2e8f0;
+  --board-column: #f8fafc;
+  --board-card: #ffffff;
+  --border: #dbe3f0;
+  --text-soft: #475569;
+  --text-muted: #64748b;
+  --button-solid: #0f172a;
+  --button-solid-hover: #1e293b;
+  --button-muted: #ffffff;
+  --shadow: rgba(15, 23, 42, 0.08);
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --background: #020817;
+  --foreground: #e2e8f0;
+  --panel: #0f172a;
+  --panel-muted: #111827;
+  --panel-strong: #1e293b;
+  --board-column: #0b1220;
+  --board-card: #111827;
+  --border: #334155;
+  --text-soft: #cbd5e1;
+  --text-muted: #94a3b8;
+  --button-solid: #e2e8f0;
+  --button-solid-hover: #f8fafc;
+  --button-muted: #0f172a;
+  --shadow: rgba(15, 23, 42, 0.4);
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -12,18 +43,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
-:root {
-  color-scheme: light;
-}
-
 html {
   scroll-behavior: smooth;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+* {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
 }
 
 :focus-visible {
@@ -41,4 +74,18 @@ a {
 
 ::selection {
   background: rgba(37, 99, 235, 0.2);
+}
+
+.task-card {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  background: var(--board-card);
+  border-color: var(--border);
+  box-shadow: 0 8px 18px var(--shadow);
+}
+
+.task-column {
+  background: var(--board-column);
+  border-color: var(--border);
 }

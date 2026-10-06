@@ -3,6 +3,15 @@ import bcrypt from "bcryptjs";
 
 import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User";
+import Workspace from "@/models/Workspace";
+
+function createInviteCode() {
+  return Array.from({ length: 8 }, () =>
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[
+      Math.floor(Math.random() * 32)
+    ]
+  ).join("");
+}
 
 export async function POST(request: Request) {
   try {
@@ -32,7 +41,7 @@ export async function POST(request: Request) {
 
     await connectDB();
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = String(email).toLowerCase().trim();
 
     const existingUser = await User.findOne({
       email: normalizedEmail,
@@ -51,10 +60,20 @@ export async function POST(request: Request) {
     const passwordHash = await bcrypt.hash(password, 12);
 
     const user = await User.create({
-      name: name.trim(),
+      name: String(name).trim(),
       email: normalizedEmail,
       passwordHash,
     });
+
+    const workspace = await Workspace.create({
+      name: `${String(name).trim()}'s workspace`,
+      inviteCode: createInviteCode(),
+      ownerId: user._id,
+      members: [user._id],
+    });
+
+    user.workspaceId = workspace._id;
+    await user.save();
 
     return NextResponse.json(
       {
@@ -64,6 +83,7 @@ export async function POST(request: Request) {
           id: user._id,
           name: user.name,
           email: user.email,
+          workspaceId: workspace._id,
         },
       },
       { status: 201 }

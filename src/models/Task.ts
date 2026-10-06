@@ -7,6 +7,7 @@ export interface ITask extends Document {
   priority: "low" | "medium" | "high";
   dueDate?: Date;
   userId: mongoose.Types.ObjectId;
+  workspaceId: mongoose.Types.ObjectId;
   assignee?: mongoose.Types.ObjectId;
   tags: string[];
   createdAt: Date;
@@ -49,6 +50,13 @@ const taskSchema = new Schema<ITask>(
     userId: {
       type: Schema.Types.ObjectId,
       ref: "User",
+      required: true,
+      index: true,
+    },
+
+    workspaceId: {
+      type: Schema.Types.ObjectId,
+      ref: "Workspace",
       required: true,
       index: true,
     },
