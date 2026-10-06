@@ -1,69 +1,79 @@
-import Image from "next/image";
+import Link from "next/link";
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+
+  if (session?.user) {
+    redirect("/dashboard");
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-12">
+      <div className="w-full max-w-5xl rounded-2xl bg-white p-8 shadow-xl ring-1 ring-slate-200 md:p-12">
+        <nav aria-label="Main navigation" className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-lg font-bold tracking-tight text-slate-900">TaskFlow</p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              Log in
+            </Link>
+            <Link
+              href="/signup"
+              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 focus-visible:outline-none"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+              Create account
+            </Link>
+          </div>
+        </nav>
+
+        <section className="mt-14 grid gap-10 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-blue-600">
+              Project planning made simple
+            </p>
+
+            <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-900 md:text-5xl">
+              Turn work into momentum.
+            </h1>
+
+            <p className="mt-5 max-w-xl text-lg text-slate-600">
+              TaskFlow helps you capture priorities, track progress across stages, and keep the whole team aligned without losing context.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/signup"
+                className="inline-flex items-center justify-center rounded-md bg-slate-900 px-6 py-3 text-base font-medium text-white hover:bg-slate-700 focus-visible:outline-none"
+              >
+                Start free
+              </Link>
+              <Link
+                href="/login"
+                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-6 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none"
+              >
+                Already have an account?
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-slate-900 p-6 text-slate-100 shadow-lg">
+            <h2 className="text-xl font-semibold">Why teams use TaskFlow</h2>
+
+            <ul className="mt-5 space-y-4 text-sm text-slate-200">
+              <li className="flex gap-3"><span aria-hidden="true">✓</span><span>Organize tasks by status, priority, due date, and assignee.</span></li>
+              <li className="flex gap-3"><span aria-hidden="true">✓</span><span>Track work with transparent task history and comments.</span></li>
+              <li className="flex gap-3"><span aria-hidden="true">✓</span><span>Focus on execution with a clean dashboard and filterable board.</span></li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }
