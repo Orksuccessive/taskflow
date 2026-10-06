@@ -49,17 +49,17 @@ export default function SignupPage() {
   }
 
   return (
-    <main id="main-content" className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-8">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-lg">
-        <h1 className="mb-2 text-2xl font-bold text-slate-900">Create your TaskFlow account</h1>
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-8 text-[var(--foreground)]">
+      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-8 shadow-lg">
+        <h1 className="mb-2 text-2xl font-bold text-[var(--foreground)]">Create your TaskFlow account</h1>
 
-        <p className="mb-6 text-sm text-slate-600">
+        <p className="mb-6 text-sm text-[var(--text-soft)]">
           Sign up to start managing your tasks.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate aria-describedby="signup-status">
           <div>
-            <label htmlFor="name" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="name" className="mb-1 block text-sm font-medium text-[var(--text-soft)]">
               Name
             </label>
 
@@ -72,13 +72,13 @@ export default function SignupPage() {
               autoComplete="name"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "signup-status" : undefined}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)] focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
               placeholder="Om Khandekar"
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="email" className="mb-1 block text-sm font-medium text-[var(--text-soft)]">
               Email
             </label>
 
@@ -91,13 +91,13 @@ export default function SignupPage() {
               autoComplete="email"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "signup-status" : undefined}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)] focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
               placeholder="you@example.com"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="password" className="mb-1 block text-sm font-medium text-[var(--text-soft)]">
               Password
             </label>
 
@@ -111,7 +111,7 @@ export default function SignupPage() {
               autoComplete="new-password"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "signup-status" : undefined}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--text-muted)] focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
               placeholder="Minimum 8 characters"
             />
           </div>
@@ -127,15 +127,15 @@ export default function SignupPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-slate-900 px-4 py-2.5 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60 hover:bg-slate-700 focus-visible:outline-none"
+            className="w-full rounded-md bg-[var(--button-solid)] px-4 py-2.5 font-medium text-[var(--background)] disabled:cursor-not-allowed disabled:opacity-60 hover:bg-[var(--button-solid-hover)] focus-visible:outline-none"
           >
             {loading ? "Creating account..." : "Create account"}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-600">
+        <p className="mt-6 text-center text-sm text-[var(--text-soft)]">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-slate-900 underline underline-offset-2">
+          <Link href="/login" className="font-medium text-[var(--foreground)] underline underline-offset-2">
             Log in
           </Link>
         </p>

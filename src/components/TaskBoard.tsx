@@ -8,6 +8,7 @@ import {
   updateTask,
   updateTaskStatus,
 } from "@/app/tasks/actions";
+import { canTransitionStatus, TASK_STATUSES } from "@/lib/taskStatus";
 
 type TaskItem = {
   _id: string;
@@ -35,6 +36,8 @@ type TaskBoardProps = Readonly<{
   commentsByTask: Record<string, CommentItem[]>;
 }>;
 
+type TaskStatus = (typeof TASK_STATUSES)[number];
+
 export default function TaskBoard({
   initialTasks,
   users,
@@ -56,12 +59,12 @@ export default function TaskBoard({
     { key: "done", label: "Done" },
   ] as const;
 
-  const handleDrop = (status: "todo" | "in-progress" | "done") => {
+  const handleDrop = (status: TaskStatus) => {
     if (!draggingTaskId) return;
 
     const task = tasks.find((item) => item._id === draggingTaskId);
 
-    if (!task || task.status === status) {
+    if (!task || task.status === status || !canTransitionStatus(task.status, status)) {
       setDraggingTaskId(null);
       return;
     }
