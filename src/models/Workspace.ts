@@ -5,6 +5,7 @@ export interface IWorkspace extends Document {
   inviteCode: string;
   ownerId: mongoose.Types.ObjectId;
   members: mongoose.Types.ObjectId[];
+  pendingMembers: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +32,12 @@ const workspaceSchema = new Schema<IWorkspace>(
       required: true,
     },
     members: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    pendingMembers: [
       {
         type: Schema.Types.ObjectId,
         ref: "User",

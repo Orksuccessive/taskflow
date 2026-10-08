@@ -5,12 +5,14 @@ import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
+import { canTransitionStatus, TASK_STATUSES } from "@/lib/taskStatus";
 import Comment from "@/models/Comment";
 import Task from "@/models/Task";
 import User from "@/models/User";
 import Workspace from "@/models/Workspace";
 
 const TASKS_PATH = "/tasks";
+type TaskStatus = (typeof TASK_STATUSES)[number];
 
 function createInviteCode() {
   return Array.from({ length: 8 }, () =>
@@ -18,38 +20,6 @@ function createInviteCode() {
       Math.floor(Math.random() * 32)
     ]
   ).join("");
-}
-
-async function ensureWorkspaceForUser(user: {
-  _id: mongoose.Types.ObjectId;
-  name?: string;
-  workspaceId?: mongoose.Types.ObjectId | null;
-  workspaceIds?: mongoose.Types.ObjectId[];
-  save?: () => Promise<unknown>;
-}) {
-  if (user.workspaceId) {
-    const existingWorkspaceIds = Array.isArray(user.workspaceIds) ? user.workspaceIds : [];
-    if (!existingWorkspaceIds.some((workspaceId) => workspaceId.toString() === user.workspaceId!.toString())) {
-      user.workspaceIds = [...existingWorkspaceIds, user.workspaceId];
-    }
-    return user.workspaceId;
-  }
-
-  const workspace = await Workspace.create({
-    name: user.name ? `${user.name}'s workspace` : "My workspace",
-    inviteCode: createInviteCode(),
-    ownerId: user._id,
-    members: [user._id],
-  });
-
-  user.workspaceId = workspace._id;
-  user.workspaceIds = Array.isArray(user.workspaceIds) ? [...user.workspaceIds, workspace._id] : [workspace._id];
-
-  if (typeof user.save === "function") {
-    await user.save();
-  }
-
-  return user.workspaceId;
 }
 
 async function getAuthenticatedUser() {
@@ -61,123 +31,31 @@ async function getAuthenticatedUser() {
 
   await connectDB();
 
-  const user = await User.findOne({
-    email: session.user.email.toLowerCase().trim(),
-  });
+  const user = await User.findOne({ email: session.user.email });
 
   if (!user) {
     throw new Error("User not found");
   }
 
-  const workspaceIds = Array.isArray(user.workspaceIds) ? user.workspaceIds : [];
-  const activeWorkspaceId = user.workspaceId;
+  if (!user.workspaceId) {
+    const workspace = await Workspace.create({
+      name: user.name ? `${user.name}'s workspace` : "My workspace",
+      inviteCode: createInviteCode(),
+      ownerId: user._id,
+      members: [user._id],
+    });
 
-  if (activeWorkspaceId && !workspaceIds.some((id) => id.toString() === activeWorkspaceId.toString())) {
-    user.workspaceIds = [...workspaceIds, activeWorkspaceId];
+    const existingWorkspaceIds = Array.isArray(user.workspaceIds) ? user.workspaceIds : [];
+    const workspaceIds = existingWorkspaceIds.some((id) => id.toString() === workspace._id.toString())
+      ? existingWorkspaceIds
+      : [...existingWorkspaceIds, workspace._id];
+
+    user.workspaceIds = workspaceIds;
+    user.workspaceId = workspace._id;
+    await user.save();
   }
 
-  if (!activeWorkspaceId && workspaceIds.length > 0) {
-    user.workspaceId = workspaceIds[0];
-  }
-
-  await ensureWorkspaceForUser(user);
-
-  return user as typeof user & { workspaceId: mongoose.Types.ObjectId; workspaceIds?: mongoose.Types.ObjectId[] };
-}
-
-function parseTags(value: string) {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-}
-
-function buildUserTaskMatch(user: { _id: mongoose.Types.ObjectId; workspaceId?: mongoose.Types.ObjectId | null }) {
-  const base = {
-    $or: [
-      { workspaceId: user.workspaceId },
-      { userId: user._id },
-    ],
-  };
-
-  if (user.workspaceId) {
-    return {
-      $and: [
-        {
-          $or: [
-            { workspaceId: user.workspaceId },
-            { userId: user._id },
-          ],
-        },
-      ],
-    };
-  }
-
-  return { userId: user._id };
-}
-
-async function resolveAssignee(
-  assigneeId: string,
-  workspaceId: mongoose.Types.ObjectId
-): Promise<mongoose.Types.ObjectId | null> {
-  if (!assigneeId) {
-    return null;
-  }
-
-  if (!mongoose.isValidObjectId(assigneeId)) {
-    throw new Error("Invalid assignee");
-  }
-
-  const assignee = await User.findOne({ _id: assigneeId });
-
-  if (!assignee) {
-    throw new Error("Assignee not found in this workspace");
-  }
-
-  const assigneeWorkspaceId = assignee.workspaceId?.toString();
-  const assigneeWorkspaceIds = Array.isArray(assignee.workspaceIds)
-    ? assignee.workspaceIds.map((id) => id.toString())
-    : [];
-  const hasWorkspaceMembership =
-    assigneeWorkspaceId === workspaceId.toString() ||
-    assigneeWorkspaceIds.includes(workspaceId.toString()) ||
-    (await Workspace.exists({ _id: workspaceId, members: assignee._id }));
-
-  if (!hasWorkspaceMembership) {
-    throw new Error("Assignee not found in this workspace");
-  }
-
-  return assignee._id as mongoose.Types.ObjectId;
-}
-
-async function getTaskForUser(
-  user: { _id: mongoose.Types.ObjectId; workspaceId?: mongoose.Types.ObjectId | null },
-  taskId: string
-) {
-  const task = await Task.findOne({
-    _id: taskId,
-    workspaceId: user.workspaceId,
-  });
-
-  if (!task) {
-    throw new Error("Task not found");
-  }
-
-  const workspace = await Workspace.findById(user.workspaceId);
-
-  if (!workspace) {
-    throw new Error("Workspace not found");
-  }
-
-  const isOwner = workspace.ownerId.equals(user._id);
-  const isCreator = task.userId.equals(user._id);
-  const isAssignee = Boolean(task.assignee && task.assignee.equals(user._id));
-
-  if (!isOwner && !isCreator && !isAssignee) {
-    throw new Error("You do not have permission to manage this task");
-  }
-
-  return { task, workspace, isOwner, isCreator, isAssignee };
+  return user;
 }
 
 export async function createTask(formData: FormData) {
@@ -187,45 +65,72 @@ export async function createTask(formData: FormData) {
     const title = String(formData.get("title") || "").trim();
     const description = String(formData.get("description") || "").trim();
     const priorityValue = String(formData.get("priority") || "medium");
-    const dueDate = String(formData.get("dueDate") || "");
+    const dueDate = String(formData.get("dueDate") || "").trim();
     const assignee = String(formData.get("assignee") || "");
-    const tags = parseTags(String(formData.get("tags") || ""));
+    const tagsValue = String(formData.get("tags") || "");
+    const tags = tagsValue
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
 
     if (!title) {
       throw new Error("Task title is required");
+    }
+
+    if (!dueDate) {
+      throw new Error("Due date is required");
     }
 
     if (!["low", "medium", "high"].includes(priorityValue)) {
       throw new Error("Invalid priority");
     }
 
-    const workspaceId = user.workspaceId;
-    const workspace = await Workspace.findById(workspaceId);
+    const workspace = await Workspace.findById(user.workspaceId);
 
     if (!workspace) {
       throw new Error("Workspace not found");
     }
 
-    if (!workspace.ownerId.equals(user._id)) {
+    if (workspace.ownerId.toString() !== user._id.toString()) {
       throw new Error("Only the workspace owner can create tasks");
     }
 
-    const assigneeId = await resolveAssignee(assignee, workspaceId);
+    const priority = priorityValue as "low" | "medium" | "high";
+    let assigneeId: mongoose.Types.ObjectId | undefined;
+
+    if (assignee) {
+      if (!mongoose.isValidObjectId(assignee)) {
+        throw new Error("Invalid assignee");
+      }
+
+      const assigneeUser = await User.findById(assignee);
+
+      if (!assigneeUser) {
+        throw new Error("Assignee not found");
+      }
+
+      const isMember = workspace.members.some((memberId) => memberId.toString() === assigneeUser._id.toString());
+
+      if (!isMember) {
+        throw new Error("Assignee not found in this workspace");
+      }
+
+      assigneeId = assigneeUser._id;
+    }
 
     await Task.create({
       title,
       description,
-      priority: priorityValue as "low" | "medium" | "high",
+      priority,
       status: "todo",
       dueDate: dueDate ? new Date(dueDate) : undefined,
       userId: user._id,
-      workspaceId,
-      assignee: assigneeId ?? undefined,
+      workspaceId: workspace._id,
+      assignee: assigneeId,
       tags,
     });
 
     revalidatePath(TASKS_PATH);
-    revalidatePath("/dashboard");
   } catch (error) {
     console.error("Create task error:", error);
     throw error;
@@ -241,9 +146,13 @@ export async function updateTask(formData: FormData) {
     const description = String(formData.get("description") || "").trim();
     const status = String(formData.get("status") || "todo");
     const priority = String(formData.get("priority") || "medium");
-    const dueDate = String(formData.get("dueDate") || "");
+    const dueDate = String(formData.get("dueDate") || "").trim();
     const assignee = String(formData.get("assignee") || "");
-    const tags = parseTags(String(formData.get("tags") || ""));
+    const tagsValue = String(formData.get("tags") || "");
+    const tags = tagsValue
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
 
     if (!taskId) {
       throw new Error("Task ID is required");
@@ -253,7 +162,11 @@ export async function updateTask(formData: FormData) {
       throw new Error("Task title is required");
     }
 
-    if (!["todo", "in-progress", "done"].includes(status)) {
+    if (!dueDate) {
+      throw new Error("Due date is required");
+    }
+
+    if (!TASK_STATUSES.includes(status as TaskStatus)) {
       throw new Error("Invalid status");
     }
 
@@ -261,19 +174,59 @@ export async function updateTask(formData: FormData) {
       throw new Error("Invalid priority");
     }
 
-    const { task, workspace } = await getTaskForUser(user, taskId);
+    const workspace = await Workspace.findById(user.workspaceId);
 
-    if (!workspace.ownerId.equals(user._id)) {
-      throw new Error("Only the workspace owner can update tasks");
+    if (!workspace) {
+      throw new Error("Workspace not found");
     }
 
-    const workspaceId = user.workspaceId;
-    const assigneeId = await resolveAssignee(assignee, workspaceId);
+    const task = await Task.findOne({
+      _id: taskId,
+      workspaceId: workspace._id,
+    });
+
+    if (!task) {
+      throw new Error("Task not found");
+    }
+
+    const isOwner = workspace.ownerId.toString() === user._id.toString();
+    const isAssignee = task.assignee?.toString() === user._id.toString();
+
+    if (!isOwner && !isAssignee) {
+      throw new Error("You can only edit tasks assigned to you or owned by the workspace owner");
+    }
+
+    const isStatusChange = task.status !== status;
+    if (isStatusChange && !canTransitionStatus(task.status, status)) {
+      throw new Error("Tasks must move through the workflow step by step");
+    }
+
+    let assigneeId: mongoose.Types.ObjectId | null = null;
+
+    if (assignee) {
+      if (!mongoose.isValidObjectId(assignee)) {
+        throw new Error("Invalid assignee");
+      }
+
+      const assigneeUser = await User.findById(assignee);
+
+      if (!assigneeUser) {
+        throw new Error("Assignee not found");
+      }
+
+      const isMember = workspace.members.some((memberId) => memberId.toString() === assigneeUser._id.toString());
+
+      if (!isMember) {
+        throw new Error("Assignee not found in this workspace");
+      }
+
+      assigneeId = assigneeUser._id;
+    }
 
     await Task.updateOne(
       {
         _id: task._id,
-        workspaceId,
+        workspaceId: workspace._id,
       },
       {
         $set: {
@@ -282,14 +235,14 @@ export async function updateTask(formData: FormData) {
           status,
           priority,
           dueDate: dueDate ? new Date(dueDate) : undefined,
-          assignee: assigneeId ?? undefined,
+          assignee: assigneeId,
           tags,
+          workspaceId: workspace._id,
         },
       }
     );
 
     revalidatePath(TASKS_PATH);
-    revalidatePath("/dashboard");
   } catch (error) {
     console.error("Update task error:", error);
     throw error;
@@ -306,16 +259,19 @@ export async function deleteTask(formData: FormData) {
       throw new Error("Task ID is required");
     }
 
-    const { task: deletedTask, workspace } = await getTaskForUser(user, taskId);
+    const task = await Task.findOne({
+      _id: taskId,
+      workspaceId: user.workspaceId,
+    });
 
-    if (!workspace.ownerId.equals(user._id)) {
-      throw new Error("Only the workspace owner can delete tasks");
+    if (!task) {
+      throw new Error("Task not found");
     }
 
-    await Task.deleteOne({ _id: deletedTask._id, workspaceId: user.workspaceId });
+    await Task.deleteOne({ _id: task._id, workspaceId: user.workspaceId });
+    await Comment.deleteMany({ taskId: task._id });
 
     revalidatePath(TASKS_PATH);
-    revalidatePath("/dashboard");
   } catch (error) {
     console.error("Delete task error:", error);
     throw error;
@@ -333,7 +289,7 @@ export async function updateTaskStatus(formData: FormData) {
       throw new Error("Task ID is required");
     }
 
-    if (!["todo", "in-progress", "done"].includes(status)) {
+    if (!TASK_STATUSES.includes(status as TaskStatus)) {
       throw new Error("Invalid status");
     }
 
@@ -346,17 +302,16 @@ export async function updateTaskStatus(formData: FormData) {
       throw new Error("Task not found");
     }
 
-    const workspace = await Workspace.findById(user.workspaceId);
+    const isOwner = user._id.toString() === task.userId?.toString();
+    const isAssignedMember = task.assignee?.toString() === user._id.toString();
 
-    if (!workspace) {
-      throw new Error("Workspace not found");
+    if (!isOwner && !isAssignedMember) {
+      throw new Error("You can only update the status of tasks assigned to you or owned by the workspace owner");
     }
 
-    const isOwner = workspace.ownerId.equals(user._id);
-    const isAssignee = Boolean(task.assignee && task.assignee.equals(user._id));
-
-    if (!isOwner && !isAssignee) {
-      throw new Error("You can only update the status of tasks assigned to you");
+    const isStatusChange = task.status !== status;
+    if (isStatusChange && !canTransitionStatus(task.status, status)) {
+      throw new Error("Tasks must move through the workflow step by step");
     }
 
     await Task.updateOne(
@@ -367,13 +322,12 @@ export async function updateTaskStatus(formData: FormData) {
       {
         $set: {
           status,
-          workspaceId: task.workspaceId || user.workspaceId,
+          workspaceId: user.workspaceId,
         },
       }
     );
 
     revalidatePath(TASKS_PATH);
-    revalidatePath("/dashboard");
   } catch (error) {
     console.error("Update task status error:", error);
     throw error;
@@ -408,18 +362,6 @@ export async function createComment(formData: FormData) {
       throw new Error("Task not found");
     }
 
-    const workspace = await Workspace.findById(user.workspaceId);
-
-    if (!workspace) {
-      throw new Error("Workspace not found");
-    }
-
-    const isWorkspaceMember = workspace.members.some((memberId) => memberId.equals(user._id));
-
-    if (!isWorkspaceMember && !workspace.ownerId.equals(user._id)) {
-      throw new Error("Only workspace members can comment on tasks");
-    }
-
     await Comment.create({
       taskId: task._id,
       authorId: user._id,
@@ -429,6 +371,50 @@ export async function createComment(formData: FormData) {
     revalidatePath(TASKS_PATH);
   } catch (error) {
     console.error("Create comment error:", error);
+    throw error;
+  }
+}
+
+export async function deleteComment(formData: FormData) {
+  try {
+    const user = await getAuthenticatedUser();
+
+    const commentId = String(formData.get("commentId") || "").trim();
+
+    if (!commentId || !mongoose.isValidObjectId(commentId)) {
+      throw new Error("Invalid comment ID");
+    }
+
+    const comment = await Comment.findById(commentId);
+
+    if (!comment) {
+      throw new Error("Comment not found");
+    }
+
+    const task = await Task.findById(comment.taskId);
+
+    if (!task) {
+      throw new Error("Task not found");
+    }
+
+    const workspace = await Workspace.findById(task.workspaceId);
+
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const isOwner = workspace.ownerId.toString() === user._id.toString();
+    const isCommentAuthor = comment.authorId.toString() === user._id.toString();
+
+    if (!isOwner && !isCommentAuthor) {
+      throw new Error("You can only delete your own comment or workspace comments you own");
+    }
+
+    await Comment.deleteOne({ _id: comment._id });
+
+    revalidatePath(TASKS_PATH);
+  } catch (error) {
+    console.error("Delete comment error:", error);
     throw error;
   }
 }

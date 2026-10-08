@@ -4,6 +4,7 @@ import { useState, useTransition, useEffect } from "react";
 
 import {
   createComment,
+  deleteComment,
   deleteTask,
   updateTask,
   updateTaskStatus,
@@ -25,7 +26,7 @@ type CommentItem = {
   _id: string;
   content: string;
   createdAt: string;
-  authorId?: { name?: string; email?: string } | null;
+  authorId?: { _id?: string; name?: string; email?: string } | null;
 };
 
 type TaskBoardProps = Readonly<{
@@ -50,7 +51,7 @@ export default function TaskBoard({
   const [, startTransition] = useTransition();
 
   useEffect(() => {
-    setTasks(initialTasks);
+     setTasks(initialTasks);
   }, [initialTasks]);
 
   const columns = [
@@ -63,8 +64,9 @@ export default function TaskBoard({
     if (!draggingTaskId) return;
 
     const task = tasks.find((item) => item._id === draggingTaskId);
+    const currentUserCanMoveTask = task && (isOwner || task.assignee?._id === currentUserId);
 
-    if (!task || task.status === status || !canTransitionStatus(task.status, status)) {
+    if (!task || !currentUserCanMoveTask || task.status === status || !canTransitionStatus(task.status, status)) {
       setDraggingTaskId(null);
       return;
     }
@@ -119,14 +121,19 @@ export default function TaskBoard({
                   return (
                     <div
                       key={task._id}
-                      draggable
+                      draggable={canChangeStatus}
                       onDragStart={(event) => {
+                        if (!canChangeStatus) {
+                          event.preventDefault();
+                          return;
+                        }
+
                         event.dataTransfer.effectAllowed = "move";
                         event.dataTransfer.setData("text/plain", task._id);
                         setDraggingTaskId(task._id);
                       }}
                       onDragEnd={() => setDraggingTaskId(null)}
-                      className="task-card cursor-grab rounded-xl border border-[var(--border)] bg-[var(--board-card)] p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)] ring-1 ring-transparent active:cursor-grabbing"
+                      className={"task-card rounded-xl border border-[var(--border)] bg-[var(--board-card)] p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)] ring-1 ring-transparent " + (canChangeStatus ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-80")}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h4 className="font-semibold text-[var(--foreground)]">{task.title}</h4>
@@ -153,6 +160,16 @@ export default function TaskBoard({
                       {task.assignee && (
                         <p className="mt-3 text-xs text-[var(--text-muted)]">
                           Assigned to {task.assignee.name || task.assignee.email || "Team member"}
+                        </p>
+                      )}
+
+                      {task.dueDate && (
+                        <p className="mt-3 text-xs font-medium text-[var(--text-soft)]">
+                          Due: {new Date(task.dueDate).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
                         </p>
                       )}
 
@@ -230,6 +247,7 @@ export default function TaskBoard({
                               <input
                                 name="dueDate"
                                 type="date"
+                                required
                                 defaultValue={task.dueDate || ""}
                                 className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--foreground)]"
                               />
@@ -264,7 +282,15 @@ export default function TaskBoard({
                             </form>
                           </details>
 
-                          <form action={deleteTask} className="mt-3">
+                          <form
+                            action={deleteTask}
+                            className="mt-3"
+                            onSubmit={(event) => {
+                              if (!window.confirm(`Delete task "${task.title}"? This action cannot be undone.`)) {
+                                event.preventDefault();
+                              }
+                            }}
+                          >
                             <input type="hidden" name="taskId" value={task._id} />
                             <button
                               type="submit"
@@ -279,19 +305,44 @@ export default function TaskBoard({
                       <div className="mt-4 border-t border-[var(--border)] pt-4">
                         <h4 className="text-sm font-semibold text-[var(--foreground)]">Comments</h4>
                         <div className="mt-3 space-y-3">
-                          {(commentsByTask[task._id] || []).map((comment) => (
-                            <div key={comment._id} className="rounded-md bg-[var(--panel-muted)] p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-sm font-medium text-[var(--foreground)]">
-                                  {comment.authorId?.name || comment.authorId?.email || "Unknown user"}
-                                </p>
-                                <time className="text-xs text-[var(--text-muted)]">
-                                  {new Date(comment.createdAt).toLocaleString()}
-                                </time>
+                          {(commentsByTask[task._id] || []).map((comment) => {
+                            const canDeleteComment = isOwner || comment.authorId?._id === currentUserId;
+
+                            return (
+                              <div key={comment._id} className="rounded-md bg-[var(--panel-muted)] p-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className="text-sm font-medium text-[var(--foreground)]">
+                                      {comment.authorId?.name || comment.authorId?.email || "Unknown user"}
+                                    </p>
+                                    <time className="text-xs text-[var(--text-muted)]">
+                                      {new Date(comment.createdAt).toLocaleString()}
+                                    </time>
+                                  </div>
+
+                                  {canDeleteComment && (
+                                    <form
+                                      action={deleteComment}
+                                      onSubmit={(event) => {
+                                        if (!window.confirm("Delete this comment?")) {
+                                          event.preventDefault();
+                                        }
+                                      }}
+                                    >
+                                      <input type="hidden" name="commentId" value={comment._id} />
+                                      <button
+                                        type="submit"
+                                        className="text-xs font-medium text-red-600 hover:text-red-700"
+                                      >
+                                        Delete
+                                      </button>
+                                    </form>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-sm text-[var(--text-soft)]">{comment.content}</p>
                               </div>
-                              <p className="mt-1 text-sm text-[var(--text-soft)]">{comment.content}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
 
                         <form action={createComment} className="mt-4 space-y-2">

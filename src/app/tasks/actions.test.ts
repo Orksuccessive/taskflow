@@ -10,9 +10,15 @@ const mockTaskUpdateOne = vi.fn();
 const mockTaskCreate = vi.fn();
 const mockTaskAggregate = vi.fn();
 const mockTaskCountDocuments = vi.fn();
+const mockTaskDeleteMany = vi.fn();
 const mockWorkspaceCreate = vi.fn();
 const mockWorkspaceFindById = vi.fn();
+const mockWorkspaceDeleteOne = vi.fn();
 const mockCommentCreate = vi.fn();
+const mockCommentFindById = vi.fn();
+const mockCommentDeleteOne = vi.fn();
+const mockCommentDeleteMany = vi.fn();
+const mockUserUpdateMany = vi.fn();
 const mockRevalidatePath = vi.fn();
 
 vi.mock("@/auth", () => ({
@@ -36,6 +42,7 @@ vi.mock("@/models/Task", () => ({
     create: mockTaskCreate,
     aggregate: mockTaskAggregate,
     countDocuments: mockTaskCountDocuments,
+    deleteMany: mockTaskDeleteMany,
   },
 }));
 
@@ -43,6 +50,7 @@ vi.mock("@/models/Workspace", () => ({
   default: {
     create: mockWorkspaceCreate,
     findById: mockWorkspaceFindById,
+    deleteOne: mockWorkspaceDeleteOne,
     exists: vi.fn(async () => true),
   },
 }));
@@ -50,6 +58,9 @@ vi.mock("@/models/Workspace", () => ({
 vi.mock("@/models/Comment", () => ({
   default: {
     create: mockCommentCreate,
+    findById: mockCommentFindById,
+    deleteOne: mockCommentDeleteOne,
+    deleteMany: mockCommentDeleteMany,
   },
 }));
 
@@ -57,7 +68,8 @@ vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
-const { updateTaskStatus, createTask } = await import("./actions");
+const { updateTaskStatus, createTask, deleteComment } = await import("./actions");
+const { deleteWorkspace } = await import("@/app/workspace/actions");
 const { getDashboardStats } = await import("@/lib/dashboard");
 
 describe("updateTaskStatus", () => {
@@ -71,9 +83,15 @@ describe("updateTaskStatus", () => {
     mockTaskCreate.mockReset();
     mockTaskAggregate.mockReset();
     mockTaskCountDocuments.mockReset();
+    mockTaskDeleteMany.mockReset();
     mockWorkspaceCreate.mockReset();
     mockWorkspaceFindById.mockReset();
+    mockWorkspaceDeleteOne.mockReset();
     mockCommentCreate.mockReset();
+    mockCommentFindById.mockReset();
+    mockCommentDeleteOne.mockReset();
+    mockCommentDeleteMany.mockReset();
+    mockUserUpdateMany.mockReset();
     mockRevalidatePath.mockReset();
   });
 
@@ -157,6 +175,40 @@ describe("updateTaskStatus", () => {
     expect(stats.workspace).toEqual(expect.objectContaining({ completionRate: expect.any(Number) }));
   });
 
+  it("requires a due date when creating a task", async () => {
+    const workspaceId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439012");
+    const ownerId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439014");
+
+    const user = {
+      _id: ownerId,
+      email: "owner@example.com",
+      name: "Owner User",
+      workspaceId,
+      workspaceIds: [workspaceId],
+      save: vi.fn().mockResolvedValue(true),
+    };
+
+    mockAuth.mockResolvedValue({ user: { email: "owner@example.com" } });
+    mockConnectDB.mockResolvedValue(undefined);
+    mockUserFindOne.mockResolvedValue(user);
+    mockWorkspaceFindById.mockResolvedValue({
+      _id: workspaceId,
+      ownerId,
+      members: [ownerId],
+    });
+
+    const formData = new FormData();
+    formData.set("title", "Task without due date");
+    formData.set("description", "Should fail");
+    formData.set("priority", "medium");
+    formData.set("dueDate", "");
+    formData.set("assignee", "");
+    formData.set("tags", "");
+
+    await expect(createTask(formData)).rejects.toThrow("Due date is required");
+    expect(mockTaskCreate).not.toHaveBeenCalled();
+  });
+
   it("blocks non-owners from creating tasks in a workspace", async () => {
     const workspaceId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439012");
     const ownerId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439014");
@@ -184,7 +236,7 @@ describe("updateTaskStatus", () => {
     formData.set("title", "Member task");
     formData.set("description", "Should fail");
     formData.set("priority", "medium");
-    formData.set("dueDate", "");
+    formData.set("dueDate", "2026-10-10");
     formData.set("assignee", "");
     formData.set("tags", "");
 
@@ -360,5 +412,78 @@ describe("updateTaskStatus", () => {
 
     await expect(updateTaskStatus(formData)).resolves.toBeUndefined();
     expect(mockTaskUpdateOne).toHaveBeenCalled();
+  });
+
+  it("deletes a comment when the author removes it", async () => {
+    const userId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439013");
+    const taskId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439011");
+    const commentId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439015");
+
+    const user = {
+      _id: userId,
+      email: "member@example.com",
+      name: "Member User",
+      workspaceId: new mongoose.Types.ObjectId("507f1f77bcf86cd799439012"),
+      workspaceIds: [new mongoose.Types.ObjectId("507f1f77bcf86cd799439012")],
+    };
+
+    mockAuth.mockResolvedValue({ user: { email: "member@example.com" } });
+    mockConnectDB.mockResolvedValue(undefined);
+    mockUserFindOne.mockResolvedValue(user);
+    mockCommentFindById.mockResolvedValue({
+      _id: commentId,
+      taskId,
+      authorId: userId,
+    });
+    mockTaskFindOne.mockResolvedValue({
+      _id: taskId,
+      workspaceId: user.workspaceId,
+    });
+    mockWorkspaceFindById.mockResolvedValue({
+      _id: user.workspaceId,
+      ownerId: new mongoose.Types.ObjectId("507f1f77bcf86cd799439014"),
+      members: [userId],
+    });
+    mockCommentDeleteOne.mockResolvedValue({ deletedCount: 1 });
+
+    const formData = new FormData();
+    formData.set("commentId", commentId.toString());
+
+    await expect(deleteComment(formData)).resolves.toBeUndefined();
+    expect(mockCommentDeleteOne).toHaveBeenCalledWith({ _id: commentId });
+  });
+
+  it("deletes a workspace only when the owner requests it", async () => {
+    const ownerId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439014");
+    const memberId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439013");
+    const workspaceId = new mongoose.Types.ObjectId("507f1f77bcf86cd799439012");
+
+    const owner = {
+      _id: ownerId,
+      email: "owner@example.com",
+      name: "Owner User",
+      workspaceId,
+      workspaceIds: [workspaceId],
+      save: vi.fn().mockResolvedValue(true),
+    };
+
+    mockAuth.mockResolvedValue({ user: { email: "owner@example.com" } });
+    mockConnectDB.mockResolvedValue(undefined);
+    mockUserFindOne.mockResolvedValue(owner);
+    mockWorkspaceFindById.mockResolvedValue({
+      _id: workspaceId,
+      ownerId,
+      members: [ownerId, memberId],
+    });
+    mockTaskDeleteMany.mockResolvedValue({ deletedCount: 2 });
+    mockCommentDeleteMany.mockResolvedValue({ deletedCount: 2 });
+    mockWorkspaceDeleteOne.mockResolvedValue({ deletedCount: 1 });
+
+    const formData = new FormData();
+    formData.set("workspaceId", workspaceId.toString());
+
+    await expect(deleteWorkspace(formData)).resolves.toBeUndefined();
+    expect(mockTaskDeleteMany).toHaveBeenCalledWith({ workspaceId });
+    expect(mockWorkspaceDeleteOne).toHaveBeenCalledWith({ _id: workspaceId });
   });
 });

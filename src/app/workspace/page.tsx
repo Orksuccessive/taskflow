@@ -3,11 +3,25 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
+import { ConfirmActionForm } from "@/components/ConfirmActionForm";
 import User from "@/models/User";
 import Workspace from "@/models/Workspace";
-import { createWorkspace, joinWorkspace, leaveWorkspace, removeMember, switchWorkspace } from "./actions";
+import {
+  approveWorkspaceJoin,
+  createWorkspace,
+  deleteWorkspace,
+  joinWorkspace,
+  leaveWorkspace,
+  rejectWorkspaceJoin,
+  removeMember,
+  switchWorkspace,
+} from "./actions";
 
-export default async function WorkspacePage() {
+export default async function WorkspacePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ joinStatus?: string; workspaceName?: string }>;
+}) {
   const session = await auth();
 
   if (!session?.user?.email) {
@@ -22,15 +36,28 @@ export default async function WorkspacePage() {
     redirect("/login");
   }
 
-  const allWorkspaceIds = Array.isArray(user.workspaceIds) && user.workspaceIds.length > 0
-    ? user.workspaceIds
-    : user.workspaceId
-      ? [user.workspaceId]
-      : [];
+  const savedWorkspaceIds = Array.isArray(user.workspaceIds) && user.workspaceIds.length > 0
+    ? user.workspaceIds.map((id) => id.toString())
+    : [];
+
+  const memberWorkspaceIds = await Workspace.find({ members: user._id })
+    .select("_id")
+    .lean()
+    .then((entries) => entries.map((entry) => entry._id.toString()));
+
+  const allWorkspaceIds = Array.from(new Set([...(savedWorkspaceIds || []), ...(memberWorkspaceIds || [])]));
 
   const workspaces = allWorkspaceIds.length
-    ? await Workspace.find({ _id: { $in: allWorkspaceIds } }).populate("members", "name email avatarUrl").sort({ createdAt: -1 }).lean()
+    ? await Workspace.find({ _id: { $in: allWorkspaceIds } })
+        .populate("members", "name email avatarUrl")
+        .populate("pendingMembers", "name email avatarUrl")
+        .sort({ createdAt: -1 })
+        .lean()
     : [];
+
+  const params = await searchParams;
+  const joinStatus = params.joinStatus;
+  const pendingWorkspaceName = params.workspaceName ? decodeURIComponent(params.workspaceName) : "workspace";
 
   const activeWorkspaceId = user.workspaceId;
   const workspace = activeWorkspaceId
@@ -38,6 +65,9 @@ export default async function WorkspacePage() {
     : workspaces[0] || null;
 
   const isOwner = !!workspace && workspace.ownerId?.toString() === user._id.toString();
+  const isPendingMember = !!workspace && Array.isArray(workspace.pendingMembers)
+    ? workspace.pendingMembers.some((member) => member && typeof member === "object" && "_id" in member && member._id?.toString() === user._id.toString())
+    : false;
 
   return (
     <main id="main-content" className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)] md:p-10">
@@ -65,6 +95,12 @@ export default async function WorkspacePage() {
             </Link>
           </div>
         </header>
+
+        {joinStatus === "pending" && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">
+            Your request to join <span className="font-semibold">{pendingWorkspaceName}</span> has been sent and is waiting for workspace owner approval.
+          </div>
+        )}
 
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl bg-[var(--panel)] p-6 shadow-sm ring-1 ring-[var(--border)]">
@@ -96,27 +132,33 @@ export default async function WorkspacePage() {
           <div className="rounded-2xl bg-[var(--panel)] p-6 shadow-sm ring-1 ring-[var(--border)]">
             <h2 className="text-xl font-semibold text-[var(--foreground)]">Join a workspace</h2>
 
-            <form action={joinWorkspace} className="mt-5 space-y-4">
-              <div>
-                <label htmlFor="inviteCode" className="mb-1 block text-sm font-medium text-[var(--text-soft)]">
-                  Invite code
-                </label>
-                <input
-                  id="inviteCode"
-                  name="inviteCode"
-                  placeholder="ABCDE123"
-                  required
-                  className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 text-[var(--foreground)] uppercase focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                />
+            {isPendingMember ? (
+              <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                Your request is pending approval from the workspace owner.
               </div>
+            ) : (
+              <form action={joinWorkspace} className="mt-5 space-y-4">
+                <div>
+                  <label htmlFor="inviteCode" className="mb-1 block text-sm font-medium text-[var(--text-soft)]">
+                    Invite code
+                  </label>
+                  <input
+                    id="inviteCode"
+                    name="inviteCode"
+                    placeholder="ABCDE123"
+                    required
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 text-[var(--foreground)] uppercase focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
 
-              <button
-                type="submit"
-                className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-5 py-2.5 font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)]"
-              >
-                Join workspace
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-5 py-2.5 font-medium text-[var(--foreground)] hover:bg-[var(--panel-muted)]"
+                >
+                  Join workspace
+                </button>
+              </form>
+            )}
           </div>
         </section>
 
@@ -183,6 +225,60 @@ export default async function WorkspacePage() {
                 </div>
               </div>
 
+              {isOwner && Array.isArray(workspace.pendingMembers) && workspace.pendingMembers.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-medium uppercase tracking-[0.12em] text-amber-800">Pending join requests</p>
+
+                  <div className="mt-3 space-y-3">
+                    {((workspace.pendingMembers as Array<{ _id: unknown; name?: string; email?: string; avatarUrl?: string }> | undefined) || []).map((requester) => {
+                      const requesterId = String(requester._id);
+
+                      return (
+                        <div key={requesterId} className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
+                              {requester.avatarUrl ? (
+                                <img src={requester.avatarUrl} alt={requester.name || "Requesting member avatar"} className="h-full w-full object-cover" />
+                              ) : (
+                                (requester.name || requester.email || "U").charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-[var(--foreground)]">{requester.name || "Unnamed member"}</p>
+                              <p className="text-sm text-[var(--text-muted)]">{requester.email}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <form action={approveWorkspaceJoin}>
+                              <input type="hidden" name="workspaceId" value={String(workspace._id)} />
+                              <input type="hidden" name="memberId" value={requesterId} />
+                              <button
+                                type="submit"
+                                className="rounded-md bg-green-600 px-3 py-2 text-xs font-medium text-white hover:bg-green-700"
+                              >
+                                Approve
+                              </button>
+                            </form>
+
+                            <form action={rejectWorkspaceJoin}>
+                              <input type="hidden" name="workspaceId" value={String(workspace._id)} />
+                              <input type="hidden" name="memberId" value={requesterId} />
+                              <button
+                                type="submit"
+                                className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100"
+                              >
+                                Reject
+                              </button>
+                            </form>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <p className="text-sm font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">Members</p>
 
@@ -214,7 +310,10 @@ export default async function WorkspacePage() {
                           </span>
 
                           {isOwner && !isMemberOwner && (
-                            <form action={removeMember}>
+                            <ConfirmActionForm
+                              action={removeMember}
+                              confirmMessage={`Remove ${member.name || "this member"} from the workspace?`}
+                            >
                               <input type="hidden" name="memberId" value={memberId} />
                               <button
                                 type="submit"
@@ -222,7 +321,7 @@ export default async function WorkspacePage() {
                               >
                                 Remove
                               </button>
-                            </form>
+                            </ConfirmActionForm>
                           )}
                         </div>
                       </div>
@@ -231,15 +330,33 @@ export default async function WorkspacePage() {
                 </div>
               </div>
 
-              {!isOwner && (
-                <form action={leaveWorkspace} className="pt-2">
+              {isOwner ? (
+                <ConfirmActionForm
+                  action={deleteWorkspace}
+                  className="pt-2"
+                  confirmMessage={`Delete the workspace "${workspace.name}" and all its tasks? This cannot be undone.`}
+                >
+                  <input type="hidden" name="workspaceId" value={String(workspace._id)} />
+                  <button
+                    type="submit"
+                    className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+                  >
+                    Delete workspace
+                  </button>
+                </ConfirmActionForm>
+              ) : (
+                <ConfirmActionForm
+                  action={leaveWorkspace}
+                  className="pt-2"
+                  confirmMessage={`Leave the workspace "${workspace.name}"? You will lose access until you are re-invited.`}
+                >
                   <button
                     type="submit"
                     className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
                   >
                     Leave workspace
                   </button>
-                </form>
+                </ConfirmActionForm>
               )}
             </div>
           ) : (
