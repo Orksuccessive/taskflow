@@ -8,6 +8,7 @@ import { createTask } from "./actions";
 import Comment from "@/models/Comment";
 import Workspace from "@/models/Workspace";
 import TaskBoard from "@/components/TaskBoard";
+import { switchWorkspace } from "@/app/workspace/actions";
 
 function createInviteCode() {
   return Array.from({ length: 8 }, () =>
@@ -137,6 +138,16 @@ export default async function TasksPage({
   const tag = params.tag?.trim() || "";
   const sort = params.sort || "newest";
 
+  const allWorkspaceIds = Array.isArray(user.workspaceIds) && user.workspaceIds.length > 0
+    ? user.workspaceIds
+    : user.workspaceId
+      ? [user.workspaceId]
+      : [];
+
+  const workspaces = allWorkspaceIds.length
+    ? await Workspace.find({ _id: { $in: allWorkspaceIds } }).select("_id name ownerId inviteCode").sort({ createdAt: -1 }).lean()
+    : [];
+
   const workspace = await Workspace.findById(user.workspaceId).lean();
   const isOwner = !!workspace && workspace.ownerId?.toString() === user._id.toString();
   const assigneeParam = params.assignee || (isOwner ? "all" : "mine");
@@ -254,6 +265,7 @@ for (const comment of comments) {
         createdAt: comment.createdAt ? new Date(comment.createdAt).toISOString() : new Date().toISOString(),
         authorId: comment.authorId
           ? {
+              _id: typeof comment.authorId === "object" && "_id" in comment.authorId ? String(comment.authorId._id ?? "") : undefined,
               name: typeof comment.authorId === "object" && "name" in comment.authorId ? String(comment.authorId.name ?? "") : undefined,
               email: typeof comment.authorId === "object" && "email" in comment.authorId ? String(comment.authorId.email ?? "") : undefined,
             }
@@ -278,6 +290,43 @@ for (const comment of comments) {
         <p className="mt-2 text-[var(--text-soft)]">
           Create and manage your TaskFlow tasks.
         </p>
+
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">Active workspace</p>
+              <h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">
+                {workspace?.name || "Workspace"}
+              </h2>
+            </div>
+
+            {workspaces.length > 0 && (
+              <form action={switchWorkspace} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label htmlFor="workspaceSwitch" className="text-sm font-medium text-[var(--foreground)]">
+                  Switch workspace
+                </label>
+                <select
+                  id="workspaceSwitch"
+                  name="workspaceId"
+                  defaultValue={String(user.workspaceId || workspaces[0]._id)}
+                  className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--foreground)]"
+                >
+                  {workspaces.map((entry) => (
+                    <option key={String(entry._id)} value={String(entry._id)}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-md bg-[var(--button-solid)] px-4 py-2 text-sm font-medium text-[var(--button-muted)] hover:bg-[var(--button-solid-hover)]"
+                >
+                  Open
+                </button>
+              </form>
+            )}
+          </div>
+        </section>
 
         {isOwner && (
           <section className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
@@ -337,6 +386,7 @@ for (const comment of comments) {
                   id="dueDate"
                   name="dueDate"
                   type="date"
+                  required
                   className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)]"
                 />
               </div>
